@@ -38,6 +38,12 @@ It needs Swift 6.4 or later.
   `entryID` add to the entry of their kind that's being written. ClaudeForFoundationModels relies
   on all of this, and AgentKit's `aSessionKeepsClaudesEntriesAsApplesDoes` checks it against Apple's
   session.
+- A prompt can hold images, as `Attachment` and `.attachment` segments, before or between its
+  text. There's no CoreGraphics here, so in place of Apple's `CGImage` initializers and
+  `cgImage`, an image is made from its encoded bytes and media type, with
+  `Attachment(data:mediaType:)` and `Transcript.ImageAttachment(data:mediaType:)`, and gives them
+  back as `data` and `mediaType`, unchecked and undecoded. A prompt's text between attachments
+  becomes one segment, with its parts on lines of their own.
 - `SystemLanguageModel` and `PrivateCloudComputeLanguageModel` report that they're unavailable, so
   only custom models (a `LanguageModel` with its own executor) answer.
 - The custom-model API (`LanguageModelExecutor`, its request and channel) is reconstructed from how

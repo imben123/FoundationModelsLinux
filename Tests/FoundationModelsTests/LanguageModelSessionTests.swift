@@ -344,3 +344,46 @@ private func kinds(_ entries: some Sequence<Transcript.Entry>) -> [String] {
 
     #expect(await watch.value)
 }
+
+@Test func aPromptsAttachmentsAreSegmentsOfTheirOwn() async throws {
+    let model = ScriptedModel([[text("A dot")]])
+    let session = LanguageModelSession(model: model)
+    let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+    _ = try await session.respond(to: Prompt {
+        Attachment(data: jpeg, mediaType: "image/jpeg")
+        "What's this?"
+        "Be brief"
+    })
+
+    guard case .prompt(let prompt) = model.requests[0].transcript.last else {
+        Issue.record("The request ends with no prompt")
+        return
+    }
+    #expect(prompt.segments.count == 2)
+    guard case .attachment(let attachment) = prompt.segments.first, case .image(let image) = attachment.content else {
+        Issue.record("The prompt doesn't start with its image")
+        return
+    }
+    #expect(image == Transcript.ImageAttachment(data: jpeg, mediaType: "image/jpeg"))
+    guard case .text(let text) = prompt.segments.last else {
+        Issue.record("The prompt doesn't end with its text")
+        return
+    }
+    #expect(text.content == "What's this?\nBe brief")
+
+    let decoded = try JSONDecoder().decode(Transcript.self, from: JSONEncoder().encode(session.transcript))
+    #expect(decoded == session.transcript)
+}
+
+@Test func aPromptOfTextAloneIsOneSegment() async throws {
+    let model = ScriptedModel([[text("Hi")]])
+    let session = LanguageModelSession(model: model)
+    _ = try await session.respond(to: "Hello")
+    guard case .prompt(let prompt) = model.requests[0].transcript.last, case .text(let text) = prompt.segments.first else {
+        Issue.record("The request ends with no text prompt")
+        return
+    }
+    #expect(prompt.segments.count == 1)
+    #expect(text.content == "Hello")
+}

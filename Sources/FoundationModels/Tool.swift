@@ -49,6 +49,6 @@ extension Tool {
         if let content = output as? any ConvertibleToGeneratedContent {
             return [.structure(Transcript.StructuredSegment(source: name, content: content.generatedContent))]
         }
-        return [.text(Transcript.TextSegment(content: output.promptRepresentation.text))]
+        return output.promptRepresentation.segments
     }
 }

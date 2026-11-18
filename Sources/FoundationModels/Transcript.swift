@@ -125,11 +125,13 @@ public struct Transcript: Sendable, Equatable, Codable, RandomAccessCollection, 
     public enum Segment: Sendable, Equatable, Identifiable, Codable, CustomStringConvertible {
         case text(TextSegment)
         case structure(StructuredSegment)
+        case attachment(AttachmentSegment)
 
         public var id: String {
             switch self {
             case .text(let segment): segment.id
             case .structure(let segment): segment.id
+            case .attachment(let segment): segment.id
             }
         }
 
@@ -138,11 +140,12 @@ public struct Transcript: Sendable, Equatable, Codable, RandomAccessCollection, 
             switch self {
             case .text(let segment): segment.description
             case .structure(let segment): segment.description
+            case .attachment(let segment): segment.description
             }
         }
 
         private enum CodingKeys: String, CodingKey {
-            case type, text, structure
+            case type, text, structure, attachment
         }
 
         public init(from decoder: any Decoder) throws {
@@ -151,6 +154,7 @@ public struct Transcript: Sendable, Equatable, Codable, RandomAccessCollection, 
             switch type {
             case "text": self = .text(try container.decode(TextSegment.self, forKey: .text))
             case "structure": self = .structure(try container.decode(StructuredSegment.self, forKey: .structure))
+            case "attachment": self = .attachment(try container.decode(AttachmentSegment.self, forKey: .attachment))
             default:
                 throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown segment \(type)")
             }
@@ -165,6 +169,9 @@ public struct Transcript: Sendable, Equatable, Codable, RandomAccessCollection, 
             case .structure(let segment):
                 try container.encode("structure", forKey: .type)
                 try container.encode(segment, forKey: .structure)
+            case .attachment(let segment):
+                try container.encode("attachment", forKey: .type)
+                try container.encode(segment, forKey: .attachment)
             }
         }
     }

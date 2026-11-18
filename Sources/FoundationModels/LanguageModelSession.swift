@@ -267,7 +267,7 @@ public final class LanguageModelSession: Observable, Sendable {
         onSnapshot: @escaping @Sendable (ResponseStream<Content>.Snapshot) async -> Void
     ) async throws -> Response<Content> {
         let promptIndex = try begin(Transcript.Prompt(
-            segments: [.text(Transcript.TextSegment(content: prompt.text))],
+            segments: prompt.segments,
             options: options,
             responseFormat: schema.map { Transcript.ResponseFormat(schema: $0) }
         ))
