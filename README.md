@@ -9,7 +9,7 @@ unchanged. Depend on it only where Apple's isn't:
 
 ```swift
 #if !canImport(Darwin)
-dependencies.append(.package(url: "https://github.com/imben123/FoundationModelsLinux", exact: "0.1.0"))
+dependencies.append(.package(url: "https://github.com/imben123/FoundationModelsLinux", exact: "0.3.0"))
 #endif
 ```
 
@@ -44,6 +44,15 @@ It needs Swift 6.4 or later.
   `Attachment(data:mediaType:)` and `Transcript.ImageAttachment(data:mediaType:)`, and gives them
   back as `data` and `mediaType`, unchecked and undecoded. A prompt's text between attachments
   becomes one segment, with its parts on lines of their own.
+- A prompt can also hold files, such as PDFs, as `Transcript.DataAttachment`s of their type and
+  bytes, made with `Attachment(_:)` from a `DataAttachmentRepresentable`. A data attachment is
+  already bytes in Apple's framework, so only its type needs a stand-in: `UTType` here knows
+  `.pdf` and `.data`, with `identifier`, `preferredMIMEType`, `init?(_:)`, `init?(mimeType:)`
+  and `conforms(to:)`. Apple's is in `UniformTypeIdentifiers`, so code that names it imports that
+  only where it exists. A model reads none unless its `supportsDataAttachmentType(_:)` says so,
+  and a session refuses a prompt with any other, before it's added to the transcript, with
+  `LanguageModelError.unsupportedTranscriptContent`. A type this copy doesn't know is kept by its
+  identifier when a transcript is decoded.
 - `SystemLanguageModel` and `PrivateCloudComputeLanguageModel` report that they're unavailable, so
   only custom models (a `LanguageModel` with its own executor) answer.
 - The custom-model API (`LanguageModelExecutor`, its request and channel) is reconstructed from how

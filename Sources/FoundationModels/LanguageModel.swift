@@ -8,6 +8,13 @@ public protocol LanguageModel: Sendable {
     var capabilities: LanguageModelCapabilities { get }
     /// Sessions share an executor for each configuration.
     var executorConfiguration: Executor.Configuration { get }
+    /// Whether the model reads data attachments of `type`, which a session checks before it
+    /// sends one. None, unless the model says so.
+    func supportsDataAttachmentType(_ type: UTType) async throws -> Bool
+}
+
+extension LanguageModel {
+    public func supportsDataAttachmentType(_ type: UTType) async throws -> Bool { false }
 }
 
 /// What a model can do.

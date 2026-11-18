@@ -11,10 +11,16 @@ final class ScriptedModel: LanguageModel {
     private let script: Mutex<[[Event]]>
     private let recorded = Mutex<[LanguageModelExecutorGenerationRequest]>([])
     let failure: (any Error)?
+    let dataTypes: [UTType]
 
-    init(_ script: [[Event]], failure: (any Error)? = nil) {
+    init(_ script: [[Event]], failure: (any Error)? = nil, dataTypes: [UTType] = []) {
         self.script = Mutex(script)
         self.failure = failure
+        self.dataTypes = dataTypes
+    }
+
+    func supportsDataAttachmentType(_ type: UTType) async throws -> Bool {
+        dataTypes.contains { type.conforms(to: $0) }
     }
 
     var requests: [LanguageModelExecutorGenerationRequest] { recorded.withLock { $0 } }
@@ -386,4 +392,94 @@ private func kinds(_ entries: some Sequence<Transcript.Entry>) -> [String] {
     }
     #expect(prompt.segments.count == 1)
     #expect(text.content == "Hello")
+}
+
+struct PDF: DataAttachmentRepresentable {
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(_ attachment: Transcript.DataAttachment) throws {
+        data = attachment.content
+    }
+
+    var transcriptRepresentation: Transcript.DataAttachment {
+        Transcript.DataAttachment(contentType: .pdf, content: data)
+    }
+}
+
+@Test func aModelThatSupportsAFilesTypeIsSentIt() async throws {
+    let model = ScriptedModel([[text("A letter")]], dataTypes: [.pdf])
+    let session = LanguageModelSession(model: model)
+    let pdf = Data("%PDF-1.4".utf8)
+
+    _ = try await session.respond(to: Prompt {
+        Attachment(PDF(data: pdf))
+        "What's this?"
+    })
+
+    guard case .prompt(let prompt) = model.requests[0].transcript.last,
+          case .attachment(let attachment) = prompt.segments.first,
+          case .data(let data) = attachment.content
+    else {
+        Issue.record("The prompt doesn't start with its PDF")
+        return
+    }
+    #expect(data == Transcript.DataAttachment(contentType: .pdf, content: pdf))
+    #expect(try PDF(data).data == pdf)
+    #expect(attachment.description == "Data(com.adobe.pdf, 8 bytes)")
+
+    let decoded = try JSONDecoder().decode(Transcript.self, from: JSONEncoder().encode(session.transcript))
+    #expect(decoded == session.transcript)
+}
+
+@Test func aFileTheModelDoesntSupportIsRefusedBeforeItsSent() async throws {
+    let model = ScriptedModel([[text("A letter")]])
+    let session = LanguageModelSession(model: model)
+
+    await #expect {
+        try await session.respond(to: Prompt {
+            Attachment(PDF(data: Data("%PDF-1.4".utf8)))
+            "What's this?"
+        })
+    } throws: { error in
+        guard case LanguageModelError.unsupportedTranscriptContent(let context) = error,
+              case .prompt = context.unsupportedContent.first
+        else { return false }
+        return true
+    }
+    #expect(model.requests.isEmpty)
+    #expect(session.transcript.isEmpty)
+    #expect(!session.isResponding)
+}
+
+@Test func modelsSupportNoFilesUnlessTheySaySo() async throws {
+    #expect(try await SystemLanguageModel.default.supportsDataAttachmentType(.pdf) == false)
+}
+
+@Test func aFileKeepsATypeThisCopyDoesntKnow() throws {
+    let json = Data(#"{"type":"data","data":{"contentType":"public.plain-text","content":"aGk="}}"#.utf8)
+    let attachment = try JSONDecoder().decode(Transcript.Attachment.self, from: json)
+    guard case .data(let data) = attachment else {
+        Issue.record("Not a data attachment")
+        return
+    }
+    #expect(data.contentType.identifier == "public.plain-text")
+    #expect(data.content == Data("hi".utf8))
+    let encoded = try JSONEncoder().encode(attachment)
+    #expect(String(decoding: encoded, as: UTF8.self).contains(#""contentType":"public.plain-text""#))
+    #expect(try JSONDecoder().decode(Transcript.Attachment.self, from: encoded) == attachment)
+}
+
+@Test func typesAreFoundByTheirMIMEType() {
+    #expect(UTType(mimeType: "application/pdf") == .pdf)
+    #expect(UTType(mimeType: "Application/PDF; charset=binary") == .pdf)
+    #expect(UTType(mimeType: "text/plain") == nil)
+    #expect(UTType("com.adobe.pdf") == .pdf)
+    #expect(UTType.pdf.preferredMIMEType == "application/pdf")
+    #expect(UTType.pdf.conforms(to: .data))
+    #expect(UTType.pdf.conforms(to: .pdf))
+    #expect(!UTType.data.conforms(to: .pdf))
 }

@@ -116,6 +116,7 @@ public final class LanguageModelSession: Observable, Sendable {
     private let tools: [any Tool]
     private let toolDefinitions: [Transcript.ToolDefinition]
     private let execute: @Sendable (LanguageModelExecutorGenerationRequest, LanguageModelExecutorGenerationChannel) async throws -> Void
+    private let supportsDataAttachmentType: @Sendable (UTType) async throws -> Bool
 
     /// - Parameter transcript: Where the session starts, which can be one an earlier session made.
     public init(model: some LanguageModel = SystemLanguageModel.default, tools: [any Tool] = [], transcript: Transcript) {
@@ -124,6 +125,7 @@ public final class LanguageModelSession: Observable, Sendable {
         self.execute = { request, channel in
             try await executor.get().respond(to: request, model: model, streamingInto: channel)
         }
+        self.supportsDataAttachmentType = { try await model.supportsDataAttachmentType($0) }
         self.tools = model.capabilities.contains(.toolCalling) ? tools : []
         self.toolDefinitions = self.tools.map { Transcript.ToolDefinition(tool: $0) }
         self.state = Mutex(State(transcript: transcript))
@@ -266,11 +268,13 @@ public final class LanguageModelSession: Observable, Sendable {
         options: GenerationOptions,
         onSnapshot: @escaping @Sendable (ResponseStream<Content>.Snapshot) async -> Void
     ) async throws -> Response<Content> {
-        let promptIndex = try begin(Transcript.Prompt(
+        let transcriptPrompt = Transcript.Prompt(
             segments: prompt.segments,
             options: options,
             responseFormat: schema.map { Transcript.ResponseFormat(schema: $0) }
-        ))
+        )
+        try await checkDataAttachments(in: transcriptPrompt)
+        let promptIndex = try begin(transcriptPrompt)
         defer {
             registrar.withMutation(of: self, keyPath: \.isResponding) {
                 state.withLock { $0.isResponding = false }
@@ -353,6 +357,20 @@ public final class LanguageModelSession: Observable, Sendable {
         let (entries, usage) = progress(after: promptIndex)
         let (content, raw) = try Self.content(of: entries, as: type)
         return Response(content: content, rawContent: raw, transcriptEntries: entries, usage: usage)
+    }
+
+    /// Refuses a prompt with a data attachment of a type the model doesn't say it supports, before
+    /// it's added to the transcript.
+    private func checkDataAttachments(in prompt: Transcript.Prompt) async throws {
+        for segment in prompt.segments {
+            guard case .attachment(let attachment) = segment, case .data(let data) = attachment.content else { continue }
+            guard try await supportsDataAttachmentType(data.contentType) else {
+                throw LanguageModelError.unsupportedTranscriptContent(.init(
+                    unsupportedContent: [.prompt(prompt)],
+                    debugDescription: "The model doesn't support attachments of type \(data.contentType.identifier)."
+                ))
+            }
+        }
     }
 
     /// Adds `prompt` to the transcript, and returns its index.
